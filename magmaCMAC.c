@@ -14,6 +14,7 @@ struct Arguments {
 	CmacMode mode;
 	char *dataFilename;
 	char *imitFilename;
+	char *passFilename;
 };
 
 
@@ -21,6 +22,7 @@ int argParse(int argc, char **argv, struct Arguments *arguments) {
 	arguments->mode = NONE;
 	arguments->dataFilename = NULL;
 	arguments->imitFilename = NULL;
+	arguments->passFilename = NULL;
 
 	for(int i = 1; i < argc; ++i) {
 		if(strcmp(argv[i], "-generate") == 0) {
@@ -31,37 +33,20 @@ int argParse(int argc, char **argv, struct Arguments *arguments) {
 			arguments->mode = VERIFY;			
 		} else if(strcmp(argv[i], "-imit") == 0) {
 			arguments->imitFilename = argv[++i];
+		} else if(strcmp(argv[i], "-pass") == 0) {
+			arguments->passFilename = argv[++i];
 		}
 	}
 
 	if(arguments->mode == NONE || 
-	  (arguments->mode == GENERATE && !arguments->dataFilename) || 
+	  ((arguments->mode == GENERATE && !arguments->dataFilename) || 
 	  (arguments->mode == VERIFY && 
-	  (!arguments->dataFilename || !arguments->imitFilename))) {
+	  (!arguments->dataFilename || !arguments->imitFilename)))) {
 		fprintf(stderr, "Invalid arguments\n");
 		exit(EXIT_FAILURE);
 	}
 
 	return 0;
-}
-
-
-ak_uint8* readImit(char *filename) {
-	FILE *file = fopen(filename, "r");
-	ak_uint8 *imitTarget;
-	int size;
-
-	fseek(file, 0, SEEK_END);
-	size = ftell(file);
-	fseek(file, 0, SEEK_SET);
-
-	imitTarget = malloc(size);
-
-	fgets(imitTarget, size, file);
-	
-	fclose(file);
-
-	return imitTarget;
 }
 
 
@@ -76,7 +61,7 @@ ak_uint8* readData(char *filename, int *length) {
 	
 	data = malloc(size);
 
-	fread(data, 1, size, file);
+	fgets(data, size, file);
 
 	fclose(file);
 	*length = size;
@@ -90,6 +75,7 @@ int main(int argc, char **argv) {
 	ak_uint8 *data;
 	int dataLength;
 	ak_uint8 *imitTarget;
+	ak_uint8 *password;
 	ak_uint8 imit[16];
 	struct Arguments arguments;
 
@@ -100,15 +86,16 @@ int main(int argc, char **argv) {
 		return EXIT_FAILURE;
 	}
 	
-	data = readData(arguments.dataFilename, &dataLength);
-
 	ak_bckey_create_magma(&context);
-	ak_bckey_set_key_from_password(&context, "miem", 4, "hse", 3);
 
+	password = readData(arguments.passFilename, &dataLength);
+	ak_bckey_set_key_from_password(&context, password, dataLength, "hse", 3);
+
+	data = readData(arguments.dataFilename, &dataLength);
 	ak_bckey_cmac(&context, arguments.dataFilename, dataLength, imit, 8);
 
 	if(arguments.mode == VERIFY) {
-		imitTarget = readImit(arguments.imitFilename);
+		imitTarget = readData(arguments.imitFilename, &dataLength);
 	}
 
 	printf("%s\n", ak_ptr_to_hexstr(imit, 8, ak_false));
